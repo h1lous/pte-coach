@@ -80,17 +80,20 @@ function countdown(sec,onTick,run,ctl){return new Promise(res=>{let left=sec;onT
 // ---------- audio (text to speech + beep) ----------
 const HAS_TTS='speechSynthesis' in window && typeof SpeechSynthesisUtterance!=='undefined';
 let VOICES=[];
-function loadVoices(){try{const all=speechSynthesis.getVoices();VOICES=all.filter(v=>/^en([-_]|$)/i.test(v.lang));const rank=v=>(/natural|online|google|premium|enhanced/i.test(v.name)?0:1);VOICES.sort((a,b)=>rank(a)-rank(b));}catch(e){}}
+const NOVELTY=/\b(albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|junior|ralph|fred|kathy|grandma|grandpa|rocko|sandy|shelley|flo|eddy|reed|hysterical|deranged|pipe organ|princess|vicki|victoria|bruce|agnes|espeak)\b/i;
+function voiceRank(v){const n=v.name;if(/natural|neural|online/i.test(n))return 0;if(/google/i.test(n))return 1;if(/premium|enhanced|siri/i.test(n))return 2;if(/\b(samantha|karen|daniel|moira|tessa|serena|arthur|martha|catherine|gordon|lee|rishi|veena|aaron|nicky|evan|zoe|ava|allison|susan|tom|oliver|libby|sonia|ryan|natasha|william|jenny|guy|aria)\b/i.test(n))return 3;return 5;}
+function loadVoices(){try{const all=speechSynthesis.getVoices();VOICES=all.filter(v=>/^en([-_]|$)/i.test(v.lang)&&!NOVELTY.test(v.name));VOICES.sort((a,b)=>voiceRank(a)-voiceRank(b));}catch(e){}}
+function bestVoice(){if(!VOICES.length)return null;const pick=DB.settings.voice&&VOICES.find(v=>v.name===DB.settings.voice);if(pick)return pick;const pool=voicePool();return pool[0]||VOICES[0];}
 if(HAS_TTS){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}}
 let audioGen=0;
-function voicePool(){const pref=DB.settings.accent;if(pref==='mixed'||!VOICES.length)return VOICES;const p=VOICES.filter(v=>v.lang.replace('_','-').toLowerCase().startsWith(pref.toLowerCase()));return p.length?p:VOICES;}
-function voiceFor(slot){const pool=voicePool();if(!pool.length)return null;return pool[Math.abs(slot)%pool.length];}
+function voicePool(){const pref=DB.settings.accent;const good=VOICES.filter(v=>voiceRank(v)<=3);const base=good.length>=2?good:VOICES.slice(0,4);if(pref==='mixed'||!VOICES.length)return base;const p=base.filter(v=>v.lang.replace('_','-').toLowerCase().startsWith(pref.toLowerCase()));return p.length?p:base;}
+function voiceFor(slot){if(DB.settings.voice){const v=VOICES.find(x=>x.name===DB.settings.voice);if(v&&slot<1000)return v;}const pool=voicePool();if(!pool.length)return null;return pool[Math.abs(slot)%pool.length];}
 function utter(text,voice,rate,pitch,gen){return new Promise(res=>{if(gen!==audioGen)return res();let done=false;const est=(wc(text)/(2.5*rate))*1000*2+3000;const to=setTimeout(fin,est);function fin(){if(!done){done=true;clearTimeout(to);res();}}
  try{const u=new SpeechSynthesisUtterance(text);if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=pitch;u.onend=fin;u.onerror=fin;speechSynthesis.speak(u);}catch(e){fin();}});}
 async function play(segs,onProgress){const gen=++audioGen;try{speechSynthesis.cancel();}catch(e){}
  const total=segs.reduce((s,x)=>s+wc(x.text),0)||1;let doneW=0;
  if(!HAS_TTS){await sleep(1200);return false;}
- for(const sg of segs){const chunks=String(sg.text).match(/[^.!?;:]+[.!?;:]*/g)||[sg.text];const v=voiceFor(sg.slot||0);
+ for(const sg of segs){const chunks=sg.clear?[String(sg.text)]:(String(sg.text).match(/[^.!?;:]+[.!?;:]*/g)||[sg.text]);const v=sg.clear?bestVoice():voiceFor(sg.slot||0);
   for(const c of chunks){if(gen!==audioGen)return false;const txt=c.trim();if(!txt)continue;await utter(txt,v,DB.settings.rate*(sg.rate||1),sg.pitch||1,gen);doneW+=wc(txt);onProgress&&onProgress(doneW/total);}
   if(sg.gap)await sleep(sg.gap);}
  return gen===audioGen;}
@@ -98,9 +101,9 @@ function stopAudio(){audioGen++;try{if(HAS_TTS)speechSynthesis.cancel();}catch(e
 let ACTX=null;
 function beep(f=880,d=0.2){try{ACTX=ACTX||new(window.AudioContext||window.webkitAudioContext)();if(ACTX.state==='suspended')ACTX.resume();const o=ACTX.createOscillator(),g=ACTX.createGain();o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0.14,ACTX.currentTime);g.gain.exponentialRampToValueAtTime(0.001,ACTX.currentTime+d);o.connect(g);g.connect(ACTX.destination);o.start();o.stop(ACTX.currentTime+d+0.02);}catch(e){}}
 function audioFor(item){const t=item.type,s=item._voice||0;
- switch(t){case 'RS':case 'WFD':case 'RL':case 'SST':case 'LMCMA':case 'HCS':case 'LMCSA':case 'SMW':return[{text:item.text,slot:s}];
+ switch(t){case 'RS':case 'WFD':return[{text:item.text,slot:s,clear:true,rate:0.9}];case 'RL':case 'SST':case 'LMCMA':case 'HCS':case 'LMCSA':case 'SMW':return[{text:item.text,slot:s}];
   case 'LFIB':return[{text:stripBlanks(item.text),slot:s}];
-  case 'ASQ':return[{text:item.question,slot:s}];
+  case 'ASQ':return[{text:item.question,slot:s,clear:true,rate:0.92}];
   case 'RTS':return[{text:item.situation,slot:s}];
   case 'HIW':return[{text:item.spoken,slot:s}];
   case 'SGD':{const map={A:0,B:1,C:2};const pitches=[1,0.85,1.18];return item.turns.map(tu=>{const k=map[String(tu.speaker).trim().toUpperCase()[0]]??0;return{text:tu.text,slot:s+k,pitch:VOICES.length>=3?1:pitches[k],gap:350};});}
@@ -415,13 +418,14 @@ function viewSettings(){renderNav('settings');const s=DB.settings;
  <section class="card"><h2>AI marking</h2><label class="opt"><input type="checkbox" id="dbl" ${s.double!==false?'checked':''}> <span><b>Double marking</b> (recommended): like Pearson, where Content on Describe Image, Retell Lecture, Respond to a Situation, Summarize Group Discussion and all writing tasks is checked by AI and a human, two independent AI raters mark each answer, and a senior rater decides if they differ by 2 or more points. More accurate, but uses about twice as much of your Claude usage.</span></label></section>
  <section class="card"><h2>Listening audio</h2><p>Recordings are read aloud by your browser's voices. Real PTE recordings use a mix of accents.</p>
  <label>Accent <select id="accent"><option value="mixed">Mixed (like the real test)</option><option value="en-GB">British</option><option value="en-AU">Australian</option><option value="en-US">American</option><option value="en-IN">Indian</option></select></label>
+ <label>Voice <select id="voiceSel"><option value="">Automatic (clearest for each task)</option></select></label>
  <label>Speed <select id="rate"><option value="0.9">Slightly slower</option><option value="1">Normal</option><option value="1.1">Slightly faster</option></select></label>
- <div class="row"><button class="btn sm" id="ttsTest">Play a test sentence</button><span class="hint" id="voiceInfo"></span></div></section>`);
- const mt=$('#micTest');if(mt)mt.onclick=async()=>{const ok=await ensureMic();$('#micRes').textContent=ok?'Microphone on. Speak and watch the bar move.':'Microphone blocked. Click the icon at the right of the address bar and choose Allow.';if(ok){const l=$('#micLvl i');MIC.onLevel=r=>{if(l)l.style.width=Math.min(100,r*900)+'%';};setTimeout(()=>{MIC.onLevel=null;},15000);}};$('#accent').value=s.accent;$('#rate').value=String(s.rate);
+ <p class="hint">Repeat Sentence, Write from Dictation and Answer Short Question always use the clearest voice, slightly slower. Clearest options: in <b>Edge</b>, voices named "Microsoft ... Online (Natural)"; in <b>Chrome</b>, "Google UK English" or "Google US English"; on a <b>Mac</b>, voices marked Premium or Enhanced (download them in System Settings, Accessibility, Spoken Content).</p><div class="row"><button class="btn sm" id="ttsTest">Play a test sentence</button><span class="hint" id="voiceInfo"></span></div></section>`);
+ const mt=$('#micTest');if(mt)mt.onclick=async()=>{const ok=await ensureMic();$('#micRes').textContent=ok?'Microphone on. Speak and watch the bar move.':'Microphone blocked. Click the icon at the right of the address bar and choose Allow.';if(ok){const l=$('#micLvl i');MIC.onLevel=r=>{if(l)l.style.width=Math.min(100,r*900)+'%';};setTimeout(()=>{MIC.onLevel=null;},15000);}};const vs=$('#voiceSel');if(vs){VOICES.forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=v.name+' ('+v.lang+')'+(voiceRank(v)<=2?' · high quality':'');vs.appendChild(o);});vs.value=s.voice||'';vs.onchange=()=>{s.voice=vs.value;save();play([{text:'The library will be closed for renovations during the mid-semester break.',clear:true,rate:0.9}]);};}$('#accent').value=s.accent;$('#rate').value=String(s.rate);
  $('#dbl').onchange=e=>{s.double=e.target.checked;save();};$('#accent').onchange=e=>{s.accent=e.target.value;save();};$('#rate').onchange=e=>{s.rate=+e.target.value;save();};
  $$('input[name=cap]').forEach(r=>r.onchange=()=>{s.capture=r.value;save();});
  $('#voiceInfo').textContent=HAS_TTS?(VOICES.length+' English voices available on this device'):'Text to speech is not available in this browser; transcripts will be shown instead.';
- $('#ttsTest').onclick=()=>{beep();play([{text:'Welcome to your PTE practice. This is how the listening recordings will sound.',slot:Math.floor(Math.random()*9)}]);};
+ $('#ttsTest').onclick=()=>{beep();play([{text:'The library will be closed for renovations during the mid-semester break.',clear:true,rate:0.9}]);};
  $('#dictCheck').onclick=()=>{const ref=words('The library will be closed for renovations during the mid-semester break.');const m=align(ref,words($('#dictTest').value)).filter(Boolean).length;$('#dictRes').textContent=$('#dictTest').value.trim()?m+' of '+ref.length+' words recognised. '+(m===ref.length?'Perfect, you are ready.':'Try again a little slower and clearer.'):'Nothing captured yet.';};
  $('#srTest').onclick=()=>{const ta=$('#dictTest');ta.value='';$('#srRes').textContent='Listening... speak now';startSR(ta,err=>{$('#srRes').textContent='Browser recognition is blocked here ('+err+'). Use device dictation instead.';});setTimeout(()=>{stopSR();if(ta.value.trim())$('#srRes').textContent='It works. Captured: '+ta.value.trim().slice(0,60);},8000);};}
 
