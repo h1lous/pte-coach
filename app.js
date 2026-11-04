@@ -88,9 +88,13 @@ if(HAS_TTS){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e
 let audioGen=0;
 function voicePool(){const pref=DB.settings.accent;const good=VOICES.filter(v=>voiceRank(v)<=3);const base=good.length>=2?good:VOICES.slice(0,4);if(pref==='mixed'||!VOICES.length)return base;const p=base.filter(v=>v.lang.replace('_','-').toLowerCase().startsWith(pref.toLowerCase()));return p.length?p:base;}
 function voiceFor(slot){if(DB.settings.voice){const v=VOICES.find(x=>x.name===DB.settings.voice);if(v&&slot<1000)return v;}const pool=voicePool();if(!pool.length)return null;return pool[Math.abs(slot)%pool.length];}
-function utter(text,voice,rate,pitch,gen){return new Promise(res=>{if(gen!==audioGen)return res();let done=false;const est=(wc(text)/(2.5*rate))*1000*2+3000;const to=setTimeout(fin,est);function fin(){if(!done){done=true;clearTimeout(to);res();}}
- try{const u=new SpeechSynthesisUtterance(text);if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=pitch;u.onend=fin;u.onerror=fin;speechSynthesis.speak(u);}catch(e){fin();}});}
-async function play(segs,onProgress){const gen=++audioGen;try{speechSynthesis.cancel();}catch(e){}
+function utter(text,voice,rate,pitch,gen){return new Promise(res=>{if(gen!==audioGen)return res();let done=false,started=false,tries=0;const est=(wc(text)/(2.5*rate))*1000*2+4000;const to=setTimeout(fin,est);function fin(){if(!done){done=true;clearTimeout(to);clearTimeout(wd);res();}}
+ let wd=null;function go(){try{const u=new SpeechSynthesisUtterance(text);if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=pitch;u.volume=1;u.onstart=()=>{started=true;};u.onend=fin;u.onerror=e=>{if(!started&&tries<2&&gen===audioGen&&e&&e.error!=='interrupted'&&e.error!=='canceled'){tries++;setTimeout(go,250);}else fin();};try{speechSynthesis.resume();}catch(e){}speechSynthesis.speak(u);
+   wd=setTimeout(()=>{if(!started&&!done&&tries<2&&gen===audioGen){tries++;try{speechSynthesis.cancel();}catch(e){}setTimeout(go,200);}},1500);}catch(e){fin();}}
+ go();});}
+let TTS_UNLOCKED=false;function unlockTTS(){if(TTS_UNLOCKED||!HAS_TTS)return;TTS_UNLOCKED=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);}catch(e){}try{ACTX=ACTX||new(window.AudioContext||window.webkitAudioContext)();if(ACTX.state==='suspended')ACTX.resume();}catch(e){}}
+['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,unlockTTS,{capture:true,passive:true}));
+async function play(segs,onProgress){const gen=++audioGen;try{if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();await sleep(180);}}catch(e){}if(gen!==audioGen)return false;
  const total=segs.reduce((s,x)=>s+wc(x.text),0)||1;let doneW=0;
  if(!HAS_TTS){await sleep(1200);return false;}
  for(const sg of segs){const chunks=sg.clear?[String(sg.text)]:(String(sg.text).match(/[^.!?;:]+[.!?;:]*/g)||[sg.text]);const v=sg.clear?bestVoice():voiceFor(sg.slot||0);
