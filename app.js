@@ -88,19 +88,27 @@ function bestVoice(){if(!VOICES.length)return null;const pick=DB.settings.voice&
 if(HAS_TTS){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}}
 let audioGen=0;
 function voicePool(){const pref=DB.settings.accent;const good=VOICES.filter(v=>voiceRank(v)<=3);const base=good.length>=2?good:VOICES.slice(0,4);if(pref==='mixed'||!VOICES.length)return base;const p=base.filter(v=>v.lang.replace('_','-').toLowerCase().startsWith(pref.toLowerCase()));return p.length?p:base;}
-function voiceFor(slot){if(DB.settings.voice){const v=VOICES.find(x=>x.name===DB.settings.voice);if(v&&slot<1000)return v;}const pool=voicePool();if(!pool.length)return null;return pool[Math.abs(slot)%pool.length];}
-function utter(text,voice,rate,pitch,gen){return new Promise(res=>{if(gen!==audioGen)return res();let done=false,started=false,tries=0;const est=(wc(text)/(2.5*rate))*1000*2+4000;const to=setTimeout(fin,est);function fin(){if(!done){done=true;clearTimeout(to);clearTimeout(wd);res();}}
- let wd=null;function go(){try{const u=new SpeechSynthesisUtterance(text);if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=pitch;u.volume=1;u.onstart=()=>{started=true;};u.onend=fin;u.onerror=e=>{if(!started&&tries<2&&gen===audioGen&&e&&e.error!=='interrupted'&&e.error!=='canceled'){tries++;setTimeout(go,250);}else fin();};try{speechSynthesis.resume();}catch(e){}speechSynthesis.speak(u);
-   wd=setTimeout(()=>{if(!started&&!done&&tries<2&&gen===audioGen){tries++;try{speechSynthesis.cancel();}catch(e){}setTimeout(go,200);}},1500);}catch(e){fin();}}
- go();});}
+function voiceFor(slot,preferLocal){if(DB.settings.voice){const v=VOICES.find(x=>x.name===DB.settings.voice);if(v&&slot<1000)return v;}let pool=voicePool();if(preferLocal){const loc=pool.filter(v=>v.localService&&voiceRank(v)<=3);if(loc.length)pool=loc;}if(!pool.length)return null;return pool[Math.abs(slot)%pool.length];}
 let TTS_UNLOCKED=false;function unlockTTS(){if(TTS_UNLOCKED||!HAS_TTS)return;TTS_UNLOCKED=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);}catch(e){}try{ACTX=ACTX||new(window.AudioContext||window.webkitAudioContext)();if(ACTX.state==='suspended')ACTX.resume();}catch(e){}}
 ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,unlockTTS,{capture:true,passive:true}));
-async function play(segs,onProgress){const gen=++audioGen;try{if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();await sleep(180);}}catch(e){}if(gen!==audioGen)return false;
- const total=segs.reduce((s,x)=>s+wc(x.text),0)||1;let doneW=0;
+function chunkText(t,max){const sents=String(t).match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g)||[String(t)];const out=[];let cur='';sents.forEach(x=>{x=x.trim();if(!x)return;if(cur&&(cur+' '+x).length>max){out.push(cur);cur=x;}else cur=cur?cur+' '+x:x;});if(cur)out.push(cur);return out;}
+// Queue a whole passage at once so the browser plays it without gaps; retry once only if nothing starts at all.
+function speakBatch(chunks,voice,rate,pitch,gen,onChunk){return new Promise(res=>{let finished=false,started=false,attempt=0;const totalW=chunks.reduce((n,c)=>n+wc(c),0);const to=setTimeout(done,(totalW/(2.2*rate))*1000*2+8000);let wd=null;
+ function done(){if(finished)return;finished=true;clearTimeout(to);clearTimeout(wd);res();}
+ function queue(){const my=++attempt;let left=chunks.length;const ended=new Array(chunks.length).fill(false);const fin=i=>{if(ended[i])return false;ended[i]=true;return true;};
+  chunks.forEach((c,i)=>{let u;try{u=new SpeechSynthesisUtterance(c);}catch(e){return done();}if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=pitch;u.volume=1;
+   u.onstart=()=>{if(my!==attempt)return;started=true;for(let j=0;j<i;j++)if(fin(j)){if(--left<=0)done();}};u.onend=()=>{if(my!==attempt||!fin(i))return;onChunk&&onChunk(wc(c));if(--left<=0)done();};u.onerror=()=>{if(my!==attempt||!fin(i))return;if(--left<=0)done();};
+   try{speechSynthesis.speak(u);}catch(e){}});
+  try{speechSynthesis.resume();}catch(e){}
+  clearTimeout(wd);wd=setTimeout(()=>{if(!started&&!finished&&gen===audioGen&&!speechSynthesis.speaking&&attempt<2){try{speechSynthesis.cancel();}catch(e){}setTimeout(()=>{if(!finished&&gen===audioGen)queue();},250);}},3500);}
+ queue();});}
+async function play(segs,onProgress){const gen=++audioGen;try{if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();await sleep(200);}}catch(e){}if(gen!==audioGen)return false;
+ const total=segs.reduce((n,x)=>n+wc(x.text),0)||1;let doneW=0;
  if(!HAS_TTS){await sleep(1200);return false;}
- for(const sg of segs){const chunks=sg.clear?[String(sg.text)]:(String(sg.text).match(/[^.!?;:]+[.!?;:]*/g)||[sg.text]);const v=sg.clear?bestVoice():voiceFor(sg.slot||0);
-  for(const c of chunks){if(gen!==audioGen)return false;const txt=c.trim();if(!txt)continue;await utter(txt,v,DB.settings.rate*(sg.rate||1),sg.pitch||1,gen);doneW+=wc(txt);onProgress&&onProgress(doneW/total);}
-  if(sg.gap)await sleep(sg.gap);}
+ const long=total>30;
+ for(const sg of segs){if(gen!==audioGen)return false;const v=sg.clear?bestVoice():voiceFor(sg.slot||0,long);const chunks=sg.clear?[String(sg.text)]:chunkText(sg.text,170);
+  await speakBatch(chunks,v,DB.settings.rate*(sg.rate||(long?0.95:1)),sg.pitch||1,gen,w=>{doneW+=w;onProgress&&onProgress(doneW/total);});
+  if(gen!==audioGen)return false;if(sg.gap)await sleep(sg.gap);}
  return gen===audioGen;}
 function stopAudio(){audioGen++;try{if(HAS_TTS)speechSynthesis.cancel();}catch(e){}}
 let ACTX=null;
