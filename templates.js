@@ -39,13 +39,13 @@ essay:{
   'On the other hand, remote work can create certain challenges. The most serious concern is that communication becomes slower when colleagues cannot speak face to face. As a result, new graduates may miss out on the informal guidance they would normally receive from experienced staff. For example, a junior engineer working online may wait several hours for an answer that would take only seconds in person, which slows down their progress.',
   'In conclusion, although remote work can reduce spontaneous collaboration, its advantages for productivity, wellbeing and recruitment are far greater. Organisations should therefore adopt hybrid models that combine the flexibility of home-based work with regular in-person days for training and teamwork.']}},
 swt:{
- intro:'One sentence, 5 to 75 words; aim for 30 to 50. Exactly one full stop, at the end. No semicolons (they can make it count as two sentences). Content is worth 4 of the 9 points, so cover the main idea, the turning point and the conclusion, in your own words.',
+ intro:'One sentence, 5 to 75 words; aim for 30 to 50. Exactly one full stop, at the end. Semicolons are fine inside the sentence; just never type a second full stop, question mark or exclamation mark. Content is worth 4 of the 9 points, so cover the main idea, the turning point and the conclusion, in your own words.',
  steps:[['Topic','Find the main idea, usually in the first one or two sentences.'],['Turning point','Look for however, but, although, yet: the complication or contrast.'],['Conclusion','The last sentence or two: the result, solution or implication.'],['Join','Link the three ideas into one sentence with connectors, paraphrasing key words.'],['Check','One full stop? 5 to 75 words? Subject and verb agree? Spelling?']],
  frames:[
   ['Contrast frame (most passages)','Although [main idea], [contrast or complication], which [effect], so [conclusion].'],
   ['Cause and effect frame','[Topic] [main claim] because [reason], and as a result [effect], although [limitation or contrast].'],
   ['Neutral frame (for descriptive passages)','[Topic] [main idea], including [key point 1] and [key point 2], which suggests that [conclusion].']],
- connectors:'although · while · whereas · because · since · which · so · and therefore · as a result · despite',
+ connectors:'although · while · whereas · because · since · which · so · and therefore · as a result · despite · ; however, · ; hence,',
  sample:{source:'Remote work and city centres (built-in passage)',answer:'Although remote work has reduced demand for city centre offices and hurt businesses reliant on commuters, researchers argue that central business districts are not disappearing but transforming, as hybrid work continues and empty offices are converted into homes.'}},
 sst:{
  intro:'Summarize Spoken Text: 50 to 70 words (aim for 55 to 65), two or three sentences. Form 0 below 40 or above 100 words. Spelling is scored, so proofread.',

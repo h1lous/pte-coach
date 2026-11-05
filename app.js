@@ -297,7 +297,7 @@ const LEVELS={
 const CONTENT_LEVELS={DI:'DI',RL:'RL',RTS:'RTS',SGD:'SGD',SWT:'SUM',SST:'SUM'};
 const TARGET_WORDS={DI:85,RL:85,RTS:85,SGD:200,PI:60};
 function formOf(type,text){const raw=String(text||'').trim();const n=wc(raw);const letters=raw.replace(/[^A-Za-z]/g,'');const caps=letters.length>10&&letters===letters.toUpperCase();const noPunct=n>8&&!/[.!?,;:]/.test(raw);const bullets=/^\s*([-*•]|\d+[.)])\s+/m.test(raw);
- if(type==='SWT'){const ends=(raw.match(/[.!?](?=\s+\S)/g)||[]).length;const one=ends===0&&!/;/.test(raw);const ok=n>=5&&n<=75&&one&&!caps&&!bullets;return{score:ok?1:0,max:1,note:n+' words, '+(one?'one sentence':'more than one sentence')+(caps?', written in capitals':'')};}
+ if(type==='SWT'){const body=raw.replace(/\b(e\.g|i\.e|etc|vs|Dr|Mr|Mrs|Ms|St|approx|no)\./gi,'$1').replace(/(\d)\.(\d)/g,'$1$2');const ends=(body.match(/[.!?](?=\s+\S)/g)||[]).length;const one=ends===0;const ok=n>=5&&n<=75&&one&&!caps&&!bullets;return{score:ok?1:0,max:1,note:n+' words, '+(one?'one sentence':'more than one sentence')+(caps?', written in capitals':'')};}
  if(type==='WE'||type==='SST'){const lo=type==='WE'?[200,300,120,380]:[50,70,40,100];let sc=n>=lo[0]&&n<=lo[1]?2:((n>=lo[2]&&n<lo[0])||(n>lo[1]&&n<=lo[3]))?1:0;if(caps||noPunct||bullets)sc=0;return{score:sc,max:2,note:n+' words'+(caps?', capitals':'')+(noPunct?', no punctuation':'')+(bullets?', bullet points':'')};}
  return null;}
 const WTRAITS={SWT:[['Content',4],['Form',1],['Grammar',2],['Vocabulary',2]],SST:[['Content',4],['Form',2],['Grammar',2],['Vocabulary',2],['Spelling',2]],WE:[['Content',6],['Form',2],['Development, structure and coherence',6],['Grammar',2],['General linguistic range',6],['Vocabulary range',2],['Spelling',2]]};
