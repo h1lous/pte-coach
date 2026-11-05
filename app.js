@@ -791,7 +791,7 @@ async function remark(at,btn){const h=historyEntries(null).find(x=>x.at===at);if
  if(OPEN.has(item.type)&&respText(h.resp).trim()&&AI==='ready'){try{const m=await aiMark([{item,resp:h.resp}]);if(m[item.id])sc=fromAI(item,h.resp,m[item.id]);}catch(e){toast('AI marking failed: '+e.message);}}
  if(!sc)return;DB.history=DB.history||[];let e=DB.history.find(x=>x.at===at);if(!e){e={at,t:Date.now(),type:item.type,item:h.item,resp:h.resp,block:null};DB.history.push(e);}e.sc=JSON.parse(JSON.stringify(sc));
  const a=DB.attempts.find(x=>x.t===at);const oldPct=a?a.pct:null;if(a)a.pct=Math.round(sc.pct*100);let linked=false;
- Object.values(DB.plan.done||{}).forEach(r=>{let ch=false;(r.results||[]).forEach(x=>{if(x.at===at||(!linked&&!x.at&&x.type===item.type&&oldPct!=null&&Math.round(x.pct*100)===oldPct)){linked=true;x.at=at;x.pct=sc.pct;x.got=sc.got;x.max=sc.max;x.partial=!!sc.partial;ch=true;}});if(ch){r.comps=compsFrom(r.results);r.coach=null;}});
+ Object.values(DB.plan.done||{}).forEach(r=>{let ch=false;(r.results||[]).forEach(x=>{if(x.at===at||(!linked&&!x.at&&x.type===item.type&&oldPct!=null&&Math.round(x.pct*100)===oldPct)){linked=true;x.at=at;x.pct=sc.pct;x.got=sc.got;x.max=sc.max;x.partial=!!sc.partial;ch=true;}});if(ch){r.comps=compsFrom(r.results);r.est=estSkills(r.results.map(x=>({type:x.type,pct:Math.round(x.pct*100)})));r.coach=null;}});
  if(DB.active)(DB.active.results||[]).forEach(x=>{if(x.at===at){x.pct=sc.pct;x.got=sc.got;x.max=sc.max;}});
  save();toast('Re-marked: '+Math.round(sc.pct*100)+'%');(LAST_VIEW||route)();}
 let LAST_VIEW=null;
