@@ -27,13 +27,13 @@ function setSync(st){SYNC=st;const b=document.getElementById('syncBadge');if(!b)
 function schedulePush(){if(!CLOUD)return;clearTimeout(pushTimer);pushTimer=setTimeout(pushNow,1500);}
 function planDoc(){return{done:DB.plan&&DB.plan.done||{},dayReports:DB.plan&&DB.plan.dayReports||{},targets:DB.plan&&DB.plan.targets||null,updatedAt:DB.updatedAt||0};}
 async function pushNow(){if(!CLOUD)return;if(pushing){pushAgain=true;return;}pushing=true;setSync('saving');
- try{await CLOUD.state.set(JSON.parse(JSON.stringify({attempts:DB.attempts,mocks:DB.mocks,bankIdx:DB.bankIdx,settings:DB.settings,active:DB.active||null,updatedAt:DB.updatedAt||0})));
+ try{await CLOUD.state.set(JSON.parse(JSON.stringify({attempts:DB.attempts,mocks:DB.mocks,bankIdx:DB.bankIdx,seen:DB.seen||{},settings:DB.settings,active:DB.active||null,updatedAt:DB.updatedAt||0})));
   let pd=JSON.parse(JSON.stringify(planDoc()));try{await CLOUD.plan.set(pd);}catch(e){if(e&&e.code==='invalid_argument'){Object.values(pd.done).sort((a,b)=>a.t-b.t).slice(0,-6).forEach(r=>{delete r.results;});await CLOUD.plan.set(pd);}else throw e;}
   setSync('on');}catch(e){setSync(e&&e.code==='quota_exceeded'?'off':'on');if(e&&(e.code==='unavailable'))setTimeout(schedulePush,4000);}
  pushing=false;if(pushAgain){pushAgain=false;pushNow();}}
 function mergeRemote(st,pl){const key=a=>a.t+'|'+a.type;const seen=new Set(DB.attempts.map(key));(st.attempts||[]).forEach(a=>{if(!seen.has(key(a))){DB.attempts.push(a);seen.add(key(a));}});DB.attempts.sort((a,b)=>a.t-b.t);
  const mt=new Set(DB.mocks.map(m=>m.t));(st.mocks||[]).forEach(m=>{if(!mt.has(m.t))DB.mocks.push(m);});DB.mocks.sort((a,b)=>a.t-b.t);
- Object.entries(st.bankIdx||{}).forEach(([k,v])=>{DB.bankIdx[k]=Math.max(DB.bankIdx[k]||0,v||0);});
+ Object.entries(st.bankIdx||{}).forEach(([k,v])=>{DB.bankIdx[k]=Math.max(DB.bankIdx[k]||0,v||0);});DB.seen=DB.seen||{};Object.entries(st.seen||{}).forEach(([k,v])=>{const a=DB.seen[k]||[];(v||[]).forEach(x=>{if(!a.includes(x))a.push(x);});DB.seen[k]=a;});
  const remoteNewer=(st.updatedAt||0)>(DB.updatedAt||0);if(remoteNewer&&st.settings)DB.settings=Object.assign({},DB.settings,st.settings);if(remoteNewer&&'active' in st)DB.active=st.active;
  DB.plan=DB.plan||{};DB.plan.done=DB.plan.done||{};DB.plan.dayReports=DB.plan.dayReports||{};
  if(pl){Object.entries(pl.done||{}).forEach(([k,v])=>{const l=DB.plan.done[k];if(!l||(v&&v.t>l.t)||(l&&!l.coach&&v&&v.coach&&v.t===l.t))DB.plan.done[k]=v;});Object.entries(pl.dayReports||{}).forEach(([k,v])=>{if(!DB.plan.dayReports[k])DB.plan.dayReports[k]=v;});if(((pl.updatedAt||0)>(DB.updatedAt||0))&&pl.targets)DB.plan.targets=pl.targets;}
@@ -82,21 +82,25 @@ const HAS_TTS='speechSynthesis' in window && typeof SpeechSynthesisUtterance!=='
 let VOICES=[];
 const NOVELTY=/\b(albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|junior|ralph|fred|kathy|grandma|grandpa|rocko|sandy|shelley|flo|eddy|reed|hysterical|deranged|pipe organ|princess|vicki|victoria|bruce|agnes|espeak)\b|google uk english male|microsoft (david|mark|george|james|richard|ravi|sean)(?!.*(online|natural))/i;
 const FEMALE=/female|samantha|karen|moira|tessa|serena|martha|catherine|veena|nicky|zoe|ava|allison|susan|libby|sonia|natasha|jenny|aria|emma|clara|ava|joanna|kendra|salli|amy|olivia|hazel|zira|susan|heera|neerja|google us english|google uk english female/i;
-function voiceRank(v){const n=v.name;if(/microsoft/i.test(n)&&!/online|natural/i.test(n))return 6;if(/natural|neural|online/i.test(n))return 0;if(/google/i.test(n))return 1;if(/premium|enhanced|siri/i.test(n))return 2;if(/\b(samantha|karen|daniel|moira|tessa|serena|arthur|martha|catherine|gordon|lee|rishi|veena|aaron|nicky|evan|zoe|ava|allison|susan|tom|oliver|libby|sonia|ryan|natasha|william|jenny|guy|aria)\b/i.test(n))return 3;return 5;}
+function voiceRank(v){const n=v.name,loc=v.localService!==false;if(/microsoft/i.test(n)&&!/online|natural/i.test(n))return 6;if(loc&&/premium|enhanced|siri/i.test(n))return 0;if(loc&&/\b(samantha|karen|daniel|moira|tessa|serena|arthur|martha|catherine|gordon|lee|rishi|veena|aaron|nicky|evan|zoe|ava|allison|susan|tom|oliver|libby|sonia|ryan|natasha|william|jenny|guy|aria|matilda|jamie|kate|stephanie|fiona)\b/i.test(n))return 1;if(/natural|neural|online/i.test(n))return 2;if(/google/i.test(n))return 3;if(/premium|enhanced/i.test(n))return 2;return 5;}
 function loadVoices(){try{const all=speechSynthesis.getVoices();VOICES=all.filter(v=>/^en([-_]|$)/i.test(v.lang)&&!NOVELTY.test(v.name));VOICES.sort((a,b)=>(voiceRank(a)-voiceRank(b))||((FEMALE.test(a.name)?0:1)-(FEMALE.test(b.name)?0:1)));}catch(e){}}
-function bestVoice(){if(!VOICES.length)return null;const pick=DB.settings.voice&&VOICES.find(v=>v.name===DB.settings.voice);if(pick)return pick;const pool=voicePool();const top=pool.length?voiceRank(pool[0]):9;return pool.find(v=>voiceRank(v)===top&&FEMALE.test(v.name))||pool.find(v=>FEMALE.test(v.name)&&voiceRank(v)<=3)||pool[0]||VOICES[0];}
+function clearPool(){const pool=voicePool();const top=pool.filter(v=>voiceRank(v)===0);const named=pool.filter(v=>/samantha|karen|serena|daniel|moira/i.test(v.name));const out=[...top,...named.filter(v=>!top.includes(v))];return out.length?out:pool;}
+function bestVoice(slot){if(!VOICES.length)return null;const pick=DB.settings.voice&&VOICES.find(v=>v.name===DB.settings.voice);if(pick)return pick;const cp=clearPool();if(slot==null)return cp.find(v=>FEMALE.test(v.name))||cp[0]||VOICES[0];return cp[Math.abs(slot)%Math.min(cp.length,4)]||VOICES[0];}
 if(HAS_TTS){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}}
 let audioGen=0;
-function voicePool(){const pref=DB.settings.accent;const good=VOICES.filter(v=>voiceRank(v)<=3);const base=good.length>=2?good:VOICES.slice(0,4);if(pref==='mixed'||!VOICES.length)return base;const p=base.filter(v=>v.lang.replace('_','-').toLowerCase().startsWith(pref.toLowerCase()));return p.length?p:base;}
+function prof(slot){const r=x=>{const t=Math.sin((slot+1)*x)*10000;return t-Math.floor(t);};return{pitch:0.94+r(12.9898)*0.14,rate:0.95+r(78.233)*0.09};}
+function intonation(c,i,n,base){const t=c.trim();let p=base.pitch,r=base.rate;const h=((i*7919)%11)/11;p*=0.97+h*0.07;if(/\?\s*["')]*$/.test(t))p*=1.07;if(/^(however|but|in contrast|on the other hand|nevertheless|interestingly|importantly|so what|finally|in conclusion|overall)\b/i.test(t)){r*=0.93;p*=1.04;}if(/\b(not|never|only|most|crucial|essential|significant|dramatic)\b/i.test(t))r*=0.97;if(i===n-1)r*=0.96;return{pitch:Math.max(0.8,Math.min(1.25,p)),rate:Math.max(0.75,Math.min(1.2,r))};}
+function baseName(v){return v.name.replace(/\s*\((enhanced|premium)\)/i,'').trim().toLowerCase();}
+function voicePool(){const pref=DB.settings.accent;let good=VOICES.filter(v=>voiceRank(v)<=3);const hq=new Set(good.filter(v=>/enhanced|premium/i.test(v.name)).map(baseName));good=good.filter(v=>/enhanced|premium/i.test(v.name)||!hq.has(baseName(v)));const local=good.filter(v=>voiceRank(v)<=1);if(local.length>=3)good=local;const base=good.length>=2?good:VOICES.slice(0,4);if(pref==='mixed'||!VOICES.length)return base;const p=base.filter(v=>v.lang.replace('_','-').toLowerCase().startsWith(pref.toLowerCase()));return p.length?p:base;}
 function voiceFor(slot,preferLocal){if(DB.settings.voice){const v=VOICES.find(x=>x.name===DB.settings.voice);if(v&&slot<1000)return v;}let pool=voicePool();if(preferLocal){const loc=pool.filter(v=>v.localService&&voiceRank(v)<=3);if(loc.length)pool=loc;}if(!pool.length)return null;return pool[Math.abs(slot)%pool.length];}
 let TTS_UNLOCKED=false;function unlockTTS(){if(TTS_UNLOCKED||!HAS_TTS)return;TTS_UNLOCKED=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u);}catch(e){}try{ACTX=ACTX||new(window.AudioContext||window.webkitAudioContext)();if(ACTX.state==='suspended')ACTX.resume();}catch(e){}}
 ['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,unlockTTS,{capture:true,passive:true}));
 function chunkText(t,max){const sents=String(t).match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g)||[String(t)];const out=[];let cur='';sents.forEach(x=>{x=x.trim();if(!x)return;if(cur&&(cur+' '+x).length>max){out.push(cur);cur=x;}else cur=cur?cur+' '+x:x;});if(cur)out.push(cur);return out;}
 // Queue a whole passage at once so the browser plays it without gaps; retry once only if nothing starts at all.
-function speakBatch(chunks,voice,rate,pitch,gen,onChunk){return new Promise(res=>{let finished=false,started=false,attempt=0;const totalW=chunks.reduce((n,c)=>n+wc(c),0);const to=setTimeout(done,(totalW/(2.2*rate))*1000*2+8000);let wd=null;
+function speakBatch(chunks,voice,rate,pitch,gen,onChunk,prosody){return new Promise(res=>{let finished=false,started=false,attempt=0;const totalW=chunks.reduce((n,c)=>n+wc(c),0);const to=setTimeout(done,(totalW/(2.2*rate))*1000*2+8000);let wd=null;
  function done(){if(finished)return;finished=true;clearTimeout(to);clearTimeout(wd);res();}
  function queue(){const my=++attempt;let left=chunks.length;const ended=new Array(chunks.length).fill(false);const fin=i=>{if(ended[i])return false;ended[i]=true;return true;};
-  chunks.forEach((c,i)=>{let u;try{u=new SpeechSynthesisUtterance(c);}catch(e){return done();}if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';u.rate=rate;u.pitch=pitch;u.volume=1;
+  chunks.forEach((c,i)=>{let u;try{u=new SpeechSynthesisUtterance(c);}catch(e){return done();}if(voice){u.voice=voice;u.lang=voice.lang;}else u.lang='en-GB';const pr=prosody?prosody(c,i,chunks.length):null;u.rate=pr?pr.rate:rate;u.pitch=pr?pr.pitch:pitch;u.volume=1;
    u.onstart=()=>{if(my!==attempt)return;started=true;for(let j=0;j<i;j++)if(fin(j)){if(--left<=0)done();}};u.onend=()=>{if(my!==attempt||!fin(i))return;onChunk&&onChunk(wc(c));if(--left<=0)done();};u.onerror=()=>{if(my!==attempt||!fin(i))return;if(--left<=0)done();};
    try{speechSynthesis.speak(u);}catch(e){}});
   try{speechSynthesis.resume();}catch(e){}
@@ -106,8 +110,8 @@ async function play(segs,onProgress){const gen=++audioGen;try{if(speechSynthesis
  const total=segs.reduce((n,x)=>n+wc(x.text),0)||1;let doneW=0;
  if(!HAS_TTS){await sleep(1200);return false;}
  const long=total>30;
- for(const sg of segs){if(gen!==audioGen)return false;const v=sg.clear?bestVoice():voiceFor(sg.slot||0,long);const chunks=sg.clear?[String(sg.text)]:chunkText(sg.text,170);
-  await speakBatch(chunks,v,DB.settings.rate*(sg.rate||(long?0.95:1)),sg.pitch||1,gen,w=>{doneW+=w;onProgress&&onProgress(doneW/total);});
+ for(const sg of segs){if(gen!==audioGen)return false;const v=sg.clear?bestVoice(sg.slot):voiceFor(sg.slot||0,long);const chunks=sg.clear?[String(sg.text)]:chunkText(sg.text,1);const pf=prof(sg.slot||0);const baseRate=DB.settings.rate*(sg.rate||(long?0.97:1));const base={pitch:(sg.pitch||1)*(sg.clear?1:pf.pitch),rate:baseRate*(sg.clear?1:pf.rate)};
+  await speakBatch(chunks,v,base.rate,base.pitch,gen,w=>{doneW+=w;onProgress&&onProgress(doneW/total);},sg.clear?null:(c,i,n)=>intonation(c,i,n,base));
   if(gen!==audioGen)return false;if(sg.gap)await sleep(sg.gap);}
  return gen===audioGen;}
 function stopAudio(){audioGen++;try{if(HAS_TTS)speechSynthesis.cancel();}catch(e){}}
@@ -119,7 +123,7 @@ function audioFor(item){const t=item.type,s=item._voice||0;
   case 'ASQ':return[{text:item.question,slot:s,clear:true,rate:0.92}];
   case 'RTS':return[{text:item.situation,slot:s}];
   case 'HIW':return[{text:item.spoken,slot:s}];
-  case 'SGD':{const map={A:0,B:1,C:2};const pitches=[1,0.85,1.18];return item.turns.map(tu=>{const k=map[String(tu.speaker).trim().toUpperCase()[0]]??0;return{text:tu.text,slot:s+k,pitch:VOICES.length>=3?1:pitches[k],gap:350};});}
+  case 'SGD':{const map={A:0,B:1,C:2};const pitches=[1,0.85,1.18];const pool=voicePool();const fem=pool.map((v,i)=>FEMALE.test(v.name)?i:-1).filter(i=>i>=0),mal=pool.map((v,i)=>FEMALE.test(v.name)?-1:i).filter(i=>i>=0);const cast=[fem[s%Math.max(1,fem.length)],mal[s%Math.max(1,mal.length)],fem[(s+1)%Math.max(1,fem.length)]].map((x,k)=>x==null||x<0?s+k:x);if(cast[2]===cast[0]&&pool.length>2)cast[2]=(cast[0]+1)%pool.length;return item.turns.map(tu=>{const k=map[String(tu.speaker).trim().toUpperCase()[0]]??0;return{text:tu.text,slot:cast[k],pitch:VOICES.length>=3?1:pitches[k],gap:350};});}
  }return null;}
 function transcriptOf(item){const a=audioFor(item);if(!a)return'';if(item.type==='SGD')return item.turns.map(t=>'<b>Speaker '+esc(t.speaker)+':</b> '+esc(t.text)).join('<br>');return esc(a.map(x=>x.text).join(' '));}
 
@@ -267,9 +271,11 @@ function autoModel(c){if(c.kind==='process')return'The diagram illustrates '+c.t
 
 // ---------- items from the bank ----------
 function prep(item,type){const it=Object.assign({},clone(item),{type});it._voice=Math.floor(Math.random()*12);return it;}
-function bankItem(type){const pool=B[type]||[];if(type==='DI'){const i=DB.bankIdx.DI||0;DB.bankIdx.DI=i+1;save();if(i<pool.length)return Object.assign(prep(pool[i],'DI'),{_src:'bank'});return randomChart();}
- if(!pool.length)return null;const i=(DB.bankIdx[type]||0)%pool.length;DB.bankIdx[type]=i+1;save();return Object.assign(prep(pool[i],type),{_src:'bank'});}
-function bankPick(type,n){const pool=shuffle(B[type]||[]);const out=[];for(let i=0;i<n;i++){if(type==='DI'&&i>=pool.length){out.push(randomChart());continue;}const p=pool[i%Math.max(1,pool.length)];if(p)out.push(Object.assign(prep(p,type),{_src:'bank'}));}return out;}
+function itemKey(it){const v=it.text||it.situation||it.prompt||it.question||it.passage||it.topic||it.spoken||(it.paragraphs&&it.paragraphs[0])||(it.chart&&it.chart.title)||JSON.stringify(it);return String(v).slice(0,60);}
+function pickFresh(type,n){const pool=B[type]||[];if(!pool.length)return[];DB.seen=DB.seen||{};let seen=DB.seen[type]||[];let fresh=pool.filter(p=>!seen.includes(itemKey(p)));if(fresh.length<n){const last=seen.slice(-Math.min(3,Math.floor(pool.length/2)));seen=seen.filter(k=>last.includes(k));fresh=pool.filter(p=>!seen.includes(itemKey(p)));}const out=shuffle(fresh).slice(0,n);out.forEach(p=>seen.push(itemKey(p)));DB.seen[type]=seen;DB.bankIdx[type]=(DB.bankIdx[type]||0)+out.length;save();try{pushNow&&pushNow();}catch(e){}return out;}
+function bankItem(type){if(type==='DI'&&Math.random()<0.4)return randomChart();const p=pickFresh(type,1)[0];if(!p)return type==='DI'?randomChart():null;return Object.assign(prep(p,type),{_src:'bank'});}
+function bankPick(type,n){const pool=pickFresh(type,Math.min(n,(B[type]||[]).length));const out=[];for(let i=0;i<n;i++){if(type==='DI'&&(i>=pool.length||Math.random()<0.4)){out.push(randomChart());continue;}const p=pool[i%Math.max(1,pool.length)];if(p)out.push(Object.assign(prep(p,type),{_src:'bank'}));}return out;}
+window.__pte={play:(a)=>play(a),audioFor:(i)=>audioFor(i),bankItem:t=>bankItem(t),bankPick:(t,n)=>bankPick(t,n),DB:()=>DB};
 
 // ---------- scoring (follows the PTE Academic Test Taker Score Guide, 2025 edition) ----------
 function align(ref,hyp){const m=ref.length,n=hyp.length;const dp=Array.from({length:m+1},()=>new Int16Array(n+1));for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]=ref[i-1]===hyp[j-1]?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);
@@ -771,7 +777,7 @@ async function viewDayReport(date){const d=PLAN.days.find(x=>x.date===date);if(!
  if(!saved&&comps.length){let c;try{if(AI!=='ready')throw 0;c=await coach('whole training day (tomorrow is: '+(nd?nd.title:'test day')+')',d.title,comps,results,estSkills(DB.attempts));}catch(e){c=offlineCoach(comps,results);}DB.plan.dayReports[date]=c;save();const box=$('#coachBox');if(box){box.innerHTML=coachHTML(c);bindCommon();}}}
 
 // ---------- Chrome site → claude.ai AI coach ----------
-function viewExport(){renderNav('');const pend=DB.pending||[],pm=DB.pendingMocks||[];const bundle={v:1,from:'chrome',at:Date.now(),mocks_to_mark:pm,st:{attempts:DB.attempts,mocks:DB.mocks.filter(m=>!m.provisional),bankIdx:DB.bankIdx,updatedAt:DB.updatedAt||0},pl:{done:(DB.plan||{}).done||{},dayReports:(DB.plan||{}).dayReports||{},targets:(DB.plan||{}).targets||null,updatedAt:DB.updatedAt||0},pending:pend};const code=encodeBundle(bundle);
+function viewExport(){renderNav('');const pend=DB.pending||[],pm=DB.pendingMocks||[];const bundle={v:1,from:'chrome',at:Date.now(),mocks_to_mark:pm,st:{attempts:DB.attempts,mocks:DB.mocks.filter(m=>!m.provisional),bankIdx:DB.bankIdx,seen:DB.seen||{},updatedAt:DB.updatedAt||0},pl:{done:(DB.plan||{}).done||{},dayReports:(DB.plan||{}).dayReports||{},targets:(DB.plan||{}).targets||null,updatedAt:DB.updatedAt||0},pending:pend};const code=encodeBundle(bundle);
  setView('<section class="card"><h1>Send to your AI coach</h1><p>The PTE-style AI marking runs inside claude.ai. This code carries '+(pm.length?'<b>'+pm.length+' mock test'+(pm.length===1?'':'s')+'</b>, ':'')+'<b>'+pend.length+' practice answer'+(pend.length===1?'':'s')+'</b> waiting for AI marking, plus all your progress and plan ticks.</p><ol><li>Click <b>Copy code and open claude.ai</b>. Your app opens on its Import page.</li><li>Paste the code (Ctrl+V or Cmd+V) and click <b>Import and AI-mark</b>. You get AI marks, feedback and coaching for every answer, and your progress syncs to your account.</li></ol><div class="row"><button class="btn primary" id="cp">Copy code and open claude.ai</button><span class="hint" id="cpres">'+Math.round(code.length/1024)+' KB</span></div><textarea class="resp" id="codebox" readonly style="min-height:90px;font-size:.75rem">'+esc(code)+'</textarea><div class="row"><button class="btn xs ghost" id="clr">I have imported it: clear the waiting list</button></div></section>');
  $('#cp').onclick=async()=>{let ok=true;try{await navigator.clipboard.writeText(code);}catch(e){ok=false;}if(ok){$('#cpres').textContent='Copied. Paste it on the Import page that just opened.';window.open(APP_URL+'#import','_blank');}else{const t=$('#codebox');t.focus();t.select();$('#cpres').textContent='Press Ctrl+C (or Cmd+C) to copy, then open '+APP_URL+'#import';}};
  $('#clr').onclick=()=>{DB.pending=[];DB.pendingMocks=[];save();updateAIBadge();go('home');};}
